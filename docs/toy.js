@@ -6,6 +6,7 @@
 })(typeof globalThis === "object" ? globalThis : this, function () {
   "use strict";
 
+  const MIN_SIZE = 0.01;
   const LIMIT = 0.98;
   const MAX_SLOPE = 10;
   const N = 96;
@@ -13,8 +14,8 @@
 
   function validate({size, speed, budget} = {}) {
     if (![size, speed, budget].every(v => typeof v === "number" && Number.isFinite(v) &&
-        v >= 0 && v <= 1) || size === 0) {
-      throw new RangeError("Use dimensionless inputs: size in (0,1], speed and budget in [0,1].");
+        v >= 0 && v <= 1) || size < MIN_SIZE) {
+      throw new RangeError("Use dimensionless inputs: size in [0.01,1], speed and budget in [0,1].");
     }
     return {size, speed, budget};
   }
@@ -34,11 +35,11 @@
     const eff = 0.58 + 0.52*core + 0.28*wall + 0.1*roundness;
     const peak = inputs.speed / eff;
     const slope = peak * (1.5 + .375*roundness)/wall;
-    const admissible = core + wall <= 1+EPS && peak <= LIMIT+EPS && slope <= MAX_SLOPE+EPS;
+    const admissible = core + EPS >= inputs.size && core + wall <= 1+EPS && peak <= LIMIT+EPS && slope <= MAX_SLOPE+EPS;
     return {peak, slope, speed: peak*eff, admissible};
   }
 
-  function energyOf(shape, inputs, peak) {
+  function energyOf(shape, peak) {
     // The toy objective is a specified finite quadrature, not a continuum claim.
     let sum = 0;
     for (let idx=0; idx<=N; idx++) {
@@ -46,7 +47,7 @@
       const weight = (idx === 0 || idx === N) ? .5 : 1;
       sum += weight*(a*a + .012*d*d);
     }
-    return inputs.size*peak*peak*sum/N;
+    return peak*peak*sum/N;
   }
 
   const dimensions = [
@@ -94,7 +95,9 @@
   function optimize(raw) {
     const inputs=validate(raw);
     const grid=[];
-    for(const core of dimensions[0])
+    // The section is normalized to [0,1]. The plateau spans shape.core of it.
+    const cores = [...new Set([...dimensions[0],inputs.size])].sort((a,b)=>a-b);
+    for(const core of cores)
       for(const wall of dimensions[1])
         for(const roundness of dimensions[2]){
           if (core+wall>1+EPS) continue;
@@ -106,7 +109,7 @@
     const checked=new Set();
     function audit(c) {
       const fresh=screen(c.shape,inputs);
-      const energy=energyOf(c.shape,inputs,fresh.peak);
+      const energy=energyOf(c.shape,fresh.peak);
       checked.add(c);
       proposals.push({shape:c.shape,energy,peak:fresh.peak,slope:fresh.slope,speed:fresh.speed,
         margin:inputs.budget-energy,feasible:fresh.admissible && energy<=inputs.budget});
@@ -124,9 +127,9 @@
     const best0=proposals.filter(p=>p.feasible).sort((a,b)=>a.energy-b.energy)[0];
     const best=best0?{...best0,profile:Array.from({length:101},(_,i)=>({
       x:i/100,y:best0.peak*shapeAt(Math.abs(i/50-1),best0.shape)[0]}))}:null;
-    const reason=best?null:eligible.length===0?"No shape passes the toy peak and wall-slope limits.":
+    const reason=best?null:eligible.length===0?"No shape meets this minimum interior width and the toy peak and wall-slope limits.":
       "No evaluated shape fits this energy budget.";
     return {feasible:!!best,best,proposals,tested:grid.length,evaluated:proposals.length,reason,inputs};
   }
-  return {optimize};
+  return {optimize, MIN_SIZE};
 });

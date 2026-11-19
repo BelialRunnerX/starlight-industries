@@ -4,9 +4,29 @@ const by=id=>document.getElementById(id);
 const fields=["size","speed","budget"];
 const n=(x,dec=3)=>Number.isFinite(x)?x.toFixed(dec):"–";
 function sync(){for(const field of fields)by(field+"-value").textContent=n(Number(by(field).value),2);}
+function clearResult(message){
+ by("status").textContent=message;
+ for(const id of ["energy","result-speed","evaluated","shape"])by(id).textContent="–";
+ for(const id of ["trace","area"])by(id).setAttribute("d","");
+ by("plot").setAttribute("aria-label","No feasible field profile to display.");
+}
 function render(){
  const inputs=Object.fromEntries(fields.map(field=>[field,Number(by(field).value)]));
- const r=window.StarlightToy.optimize(inputs),best=r.best;
+ const toy=window.StarlightToy;
+ if(!fields.every(field=>by(field).value.trim()!=="" && Number.isFinite(inputs[field]) &&
+     inputs[field]>=Number(by(field).min) && inputs[field]<=Number(by(field).max)) ||
+     !toy || inputs.size<toy.MIN_SIZE){
+   clearResult("Choose valid slider values, with interior width at least 0.01.");
+   return;
+ }
+ let r;
+ try { r=toy.optimize(inputs); }
+ catch(error) {
+   if(!(error instanceof RangeError)) throw error;
+   clearResult(error.message);
+   return;
+ }
+ const best=r.best;
  by("status").textContent=best?"Feasible within the toy model. Lowest energy among evaluated candidates.":r.reason;
  by("energy").textContent=best?n(best.energy):"–";by("result-speed").textContent=best?n(best.speed):"–";
  by("evaluated").textContent=r.evaluated+" / "+r.tested;
